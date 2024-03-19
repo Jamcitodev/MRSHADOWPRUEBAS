@@ -108,4 +108,6 @@ for archivo in archivos:
 contactos_json = contactos.to_json()
 
 # Guarda los contactos en un archivo JSON
+
 with open('contactos.json') as archivo:
+    # Resto del código aquí
